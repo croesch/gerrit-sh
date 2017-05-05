@@ -1,4 +1,14 @@
 #!/bin/bash
+#
+# @see: https://review.openstack.org/Documentation/cmd-query.html
+
+# set -x
+
+declare -A required_helper=(["git"]="https://git-scm.com/"\
+                            ["awk"]="http://www.gnu.org/software/gawk/"\
+                            ["jq"]="https://github.com/stedolan/jq"\
+                            ["grep"]="http://www.gnu.org/software/grep/"\
+                            ["ssh"]="http://www.openssh.com/")
 
 op=$1
 remote_name=
@@ -6,6 +16,23 @@ remote_user=
 remote_host=
 remote_port=
 project=
+
+# Cheks the required tools and commands.
+#
+# @returns: 1 if executable was not found, otherwise 0
+#
+_check_required_helper() {
+   for executable in "${!required_helper[@]}";
+   do
+     # @see: http://stackoverflow.com/questions/592620/how-to-check-if-a-program-exists-from-a-bash-script
+     if [ "" == "$(command -v ${executable})" ]
+     then
+       echo "the executable: ${executable} (${required_helper[${executable}]}) is required!"
+       return 1
+     fi
+   done
+   return 0
+}
 
 show_usage() {
   cat <<EOF
@@ -43,9 +70,9 @@ commands.
     same as \`git push origin HEAD:refs/for/<base_branch>/<current_branch>\`.
     Optionally assign reviewers at the same time with the \`--assign\` argument
     followed by any ammount of usernames.
-    
+
   draft [<base_branch]
-    Same as push, but as a draft 
+    Same as push, but as a draft
     (ie: refs/drafts/<base_branch>/<current_branch>)
 
   assign <reviewer> [<reviewer> ...]
@@ -67,7 +94,7 @@ commands.
     Give a review of the current checked out patch.
 
   comment [<message>]
-    Post a review comment without having to give a vierified or code-review score. 
+    Post a review comment without having to give a vierified or code-review score.
 
   submit [<message>]
     Submit the patch for merging with verified = 1 and code-review = 2.
@@ -78,9 +105,9 @@ commands.
   pubmit
     Same as \`gerrit push && gerrit submit "auto-submit"\`
     ALIAS: ninja
-    
+
   ssh [<gerrit_name>] <command>
-    Run a custom gerrit server command, see 
+    Run a custom gerrit server command, see
     https://review.openstack.org/Documentation/cmd-index.html#_server
 
   hook-install
@@ -276,6 +303,9 @@ check_in_git_repo() {
     die "You must be in a git repository to run that command."
   fi
 }
+
+_check_required_helper
+[ 0 != $? ] && exit 1 || true
 
 case $op in
 
@@ -495,36 +525,32 @@ case $op in
 
     query="status:open project:$project"
 
-    if [[ $2 != "all" ]]; then
+    if [[ "$2" != "all" ]]; then
       query="$query reviewer:$remote_user"
     fi
 
-    result=$(ssh_gerrit "query '$query'")
+    # @see http://www.artificialworlds.net/blog/2012/10/17/bash-associative-array-examples/
+    declare -A table_header=( ["number"]="ID" ["owner.name"]="Owner" ["branch"]="Branch" ["subject"]="Subject" ["url"]="URL" );
+    declare -A approvals_header=( ["Blocked"]="B" ["Code-Analysis"]="CA" ["Code-Review"]="CR" ["Continuous-Integration"]="CI" );
+    declare -A changes
+    counter=0
+    while read line; do
+        for key in "${!table_header[@]}"; do changes[${counter},${key}]=$(jq -rc ".${key}" < <(echo "${line}")); done;
+        for key in "${!approvals_header[@]}"; do changes[${counter},${key}]=$(jq -rc ".currentPatchSet.approvals[]? | if .type == \"${key}\" then (.value) else empty end" < <(echo "${line}")); done;
+        counter=$((counter+1));
+    done < <(ssh_gerrit "query --format JSON --current-patch-set '$query'" | grep -v "\"type\":\"stats\"") # get JSON result and ignore statistic data
 
-    number=
-    owner=
-    subject=
-    topic=
+    header="${table_header["number"]} | ${table_header["subject"]} | ${table_header["owner.name"]} | ${table_header["branch"]}"
+    for key in "${!approvals_header[@]}"; do header+="| ${approvals_header[${key}]}"; done
+    header+="\n"
 
-    echo "$result" | while read line; do
-      if eq_regexp "$line" "^\s*$"; then
-        echo "$number [$topic] \"$subject\" ($owner)"
-        number=
-        owner=
-        subject=
-        topic=
-      elif eq_regexp "$line" "number"; then
-        number=$(echo $line | sed -e 's|^[^:]*: *||')
-      elif eq_regexp "$line" "^name"; then
-        owner=$(echo $line | sed -e 's|^[^:]*: *||')
-      elif eq_regexp "$line" "^subject"; then
-        subject=$(echo $line | sed -e 's|^[^:]*: *||')
-      elif eq_regexp "$line" "^topic"; then
-        topic=$(echo $line | sed -e 's|^[^:]*: *||')
-      fi
-
+    lines=""
+    for (( i=0; i < ${counter}; i++ )); do
+      lines+="${changes[${i},"number"]} | ${changes[${i},"subject"]} | ${changes[${i},"owner.name"]} | ${changes[${i},"branch"]}"
+      for key in "${!approvals_header[@]}"; do lines+="| ${changes[${i},${key}]}"; done
+      lines+="\n"
     done
-
+    echo "$( column -entx -s'|' < <(echo -e "${header}${lines}"))"
     ;;
 
   review|comment|submit|abandon)
@@ -617,7 +643,7 @@ case $op in
           git config --add gerrit.reviewers "$reviewer"
         fi
 
-      else 
+      else
 
         echo "Error while assigning reviewer $reviewer"
 
@@ -642,7 +668,7 @@ case $op in
 
     if [[ $is_reco ]]; then
       target=$(git symbolic-ref HEAD | cut -d'/' -f 3)
-    else 
+    else
       target=$2
     fi
 
@@ -663,7 +689,7 @@ case $op in
         echo "WARNING: No topic found for this patch, you will be checked-out in a detached head."
       fi
 
-    else 
+    else
 
       topic=$target
 
