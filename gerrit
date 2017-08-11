@@ -202,6 +202,26 @@ ssh_gerrit() {
   fi
 }
 
+get_ssh_alias_field() {
+  awk "{IGNORECASE=1} \$1==\"Host\" {host=\$2} \$1==\"$2\" && host==\"$1\" {print \$2}" "$HOME/.ssh/config";
+}
+
+get_ssh_alias() {
+  local hostName=$(get_ssh_alias_field "${1}" "HostName")
+  if [[ -z "${hostName}" ]]; then
+    return
+  fi
+  local user=$(get_ssh_alias_field "${1}" "user")
+  local port=$(get_ssh_alias_field "${1}" "port")
+  if [[ ! -z "${user}" ]]; then
+    echo -n "${user}@"
+  fi
+  echo -n "${hostName}"
+  if [[ ! -z "${port}" ]]; then
+    echo -n ":${port}"
+  fi
+}
+
 get_all_gerrit_remote_names() {
   git config --global --get-regexp 'gerrit.*.host' | sed 's/^gerrit\.\(.*\)\.host.*$/\1/g'
 }
@@ -235,10 +255,19 @@ get_repo_remote_config() {
   local branch=${1:-"master"}
   remote_name=$(git config "branch.$branch.remote")
   local remote_url=$(git config "remote.$remote_name.url" | sed -e 's|^ssh://||')
-  remote_port=$(echo $remote_url | sed -e 's|^.*:||' -e 's|/.*$||')
   remote_host=$(echo $remote_url | sed -e 's|^.*@||' -e 's|:.*$||')
-  remote_user=$(echo $remote_url | sed -e 's|@.*$||')
-  project=$(echo $remote_url | sed -e 's|^[^/]*/||' -e 's|\.git||')
+  local unaliased=$(get_ssh_alias ${remote_host})
+  if [[ -z "${unaliased}" ]]; then
+    unaliased=remote_url
+    # strip everything to the first slash which should separate port from project
+    project=$(echo $ | sed -e 's|^[^/]*/||' -e 's|\.git||')
+  else
+    # project begins directly after :
+    project=$(echo $ | sed -e 's|^[^:]*:||' -e 's|\.git||')
+  fi
+  remote_host=$(echo $unaliased | sed -e 's|^.*@||' -e 's|:.*$||')
+  remote_port=$(echo $unaliased | sed -e 's|^.*:||' -e 's|/.*$||')
+  remote_user=$(echo $unaliased | sed -e 's|@.*$||')
 }
 
 setup_gerrit_config() {
