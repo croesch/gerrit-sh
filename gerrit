@@ -260,10 +260,10 @@ get_repo_remote_config() {
   if [[ -z "${unaliased}" ]]; then
     unaliased=remote_url
     # strip everything to the first slash which should separate port from project
-    project=$(echo $ | sed -e 's|^[^/]*/||' -e 's|\.git||')
+    project=$(echo $remote_url | sed -e 's|^[^/]*/||' -e 's|\.git||')
   else
     # project begins directly after :
-    project=$(echo $ | sed -e 's|^[^:]*:||' -e 's|\.git||')
+    project=$(echo $remote_url | sed -e 's|^[^:]*:||' -e 's|\.git||')
   fi
   remote_host=$(echo $unaliased | sed -e 's|^.*@||' -e 's|:.*$||')
   remote_port=$(echo $unaliased | sed -e 's|^.*:||' -e 's|/.*$||')
