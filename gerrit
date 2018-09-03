@@ -696,15 +696,7 @@ case $op in
     get_repo_remote_config
 
     if [[ $is_reco ]]; then
-      target=$(git symbolic-ref HEAD | cut -d'/' -f 3)
-    else
-      target=$2
-    fi
-
-    if eq_regexp $target "^[0-9]+$"; then
-
-      change_id=$target
-
+      change_id=$(git symbolic-ref HEAD | cut -d'/' -f 4)
       query_result=$(ssh_gerrit "query $change_id")
 
       rowCount=$(echo "$query_result" | awk -F':' '/^rowCount/ { print $2 }')
@@ -715,17 +707,31 @@ case $op in
 
       topic=$(echo "$query_result" | awk -F ':' '/^ *topic/ { print $2 }' | tr -d ' ')
       if [[ -z $topic ]]; then
-        echo "WARNING: No topic found for this patch, you will be checked-out in a detached head."
+        echo "WARNING: No topic found for this patch, updating only patch set."
+        target=$change_id
+      elif eq_regexp $topic "^[0-9]+$"; then
+        echo "WARNING: Topic is numeric, gerrit-sh currently doesn't support numeric topics."
+        target=$change_id
+      else
+        echo "Updating to latest change of topic '$topic'"
+        target=$topic
       fi
+    else
+      target=$2
+    fi
+
+    if eq_regexp $target "^[0-9]+$"; then
+
+      change_id=$target
 
     else
-
-      topic=$target
 
       change_id=$(ssh_gerrit "query project:$project topic:$topic limit:1" | awk -F ':' '/^ *number/ { print $2; exit; }' | tr -d ' ')
 
       if [[ -z $change_id ]]; then
         die "Could not find topic \"$target\""
+      else
+        echo "Latest change found with id '$change_id'"
       fi
 
     fi
@@ -752,32 +758,35 @@ case $op in
 
     git fetch $remote_name $ref
 
+    # TODO: Is it necessary to create symbolic branches?
+    target_branch="change/$change_id"
+
     if [ $? -eq 0 ]; then
 
       # TODO: Ensure no changes before changing branch
-      if [[ $topic == "master" ]]; then
+      if [[ $target_branch == "master" ]]; then
 
-        echo "Patch topic is \"master\", therefore staying on detached head."
+        echo "Patch target branch is \"master\", therefore staying on detached head."
 
-      elif [[ -n "$topic" ]] && git_branch_exists "$topic"; then
+      elif [[ -n "$target_branch" ]] && git_branch_exists "$target_branch"; then
 
         if [[ $is_reco ]]; then
           REPLY='y'
         else
-          ask "Branch with name $topic already exists, overwrite?"
+          ask "Branch with name $target_branch already exists, overwrite?"
         fi
 
         if [[ $REPLY == 'y' ]]; then
           git checkout master
-          git branch -D "$topic"
+          git branch -D "$target_branch"
         fi
 
       fi
 
-      if [[ -z $topic ]] || git_branch_exists "$topic"; then
+      if [[ -z $target_branch ]] || git_branch_exists "$target_branch"; then
         git checkout FETCH_HEAD
       else
-        git checkout -b $topic FETCH_HEAD
+        git checkout -b $target_branch FETCH_HEAD
       fi
 
     fi
