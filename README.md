@@ -12,7 +12,7 @@ Installation
 1. Clone this repository 
 
     ```
-    git clone http://github.com/shanesmith/gerrit-sh.git
+    git clone http://github.com/croesch/gerrit-sh.git
     ```
 
 2. Run install.sh
