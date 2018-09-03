@@ -3,8 +3,7 @@ Gerrit-sh
 
 Gerrit in your command lines.
 
-**This project has been abandoned in favour of the NodeJS version found at
-http://github.com/shanesmith/gerrit-cli**
+**There is also a NodeJS version available, found at http://github.com/shanesmith/gerrit-cli**
 
 
 Installation
